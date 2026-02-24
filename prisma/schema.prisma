@@ -1,0 +1,145 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum TipoMovimiento {
+  INGRESO
+  GASTO
+}
+
+// ─────────────────────────────────────────
+// MODELS
+// ─────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships  Membership[]
+  movimientos  Movimiento[]
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships  Membership[]
+  categorias   Categoria[]
+  movimientos  Movimiento[]
+  saldoDeudas  SaldoDeuda[]
+  invitaciones Invitacion[]
+
+}
+
+model Membership {
+  id             String       @id @default(cuid())
+  role           Role
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([userId])
+  @@index([organizationId])
+  @@index([organizationId, userId])
+}
+
+model Categoria {
+  id        String         @id @default(cuid())
+  nombre    String
+  tipo      TipoMovimiento
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  movimientos Movimiento[]
+
+  @@unique([organizationId, nombre, tipo])
+  @@index([organizationId])
+  @@index([organizationId, tipo])
+}
+
+model Movimiento {
+  id           String         @id @default(cuid())
+  fecha        DateTime
+  descripcion  String
+  monto        Decimal        @db.Decimal(12, 2)
+  tipo         TipoMovimiento
+  esCompartido Boolean        @default(false) // si es true, se divide 50/50 en el balance
+  cuotaInfo    String?        // ej. "2/6" — solo para movimientos importados de tarjeta
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  categoriaId String
+  categoria   Categoria    @relation(fields: [categoriaId], references: [id])
+
+  createdById String
+  createdBy   User         @relation(fields: [createdById], references: [id])
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([organizationId, tipo])
+  @@index([organizationId, fecha])
+  @@index([organizationId, createdById])
+  @@index([organizationId, esCompartido]) // útil para calcular deuda entre usuarios
+  @@index([categoriaId])
+}
+
+// Registra cada vez que se salda la deuda entre los dos usuarios
+model SaldoDeuda {
+  id          String   @id @default(cuid())
+  monto       Decimal  @db.Decimal(12, 2) // monto que se saldó
+  nota        String?  // ej. "Pago por transferencia"
+  creadoEn    DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([organizationId, creadoEn])
+}
+
+model Invitacion {
+  id             String   @id @default(cuid())
+  token          String   @unique @default(cuid())
+  usada          Boolean  @default(false)
+  creadoEn       DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([organizationId])
+}
